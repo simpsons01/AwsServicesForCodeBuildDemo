@@ -46,7 +46,7 @@ const updateCommitStatusToFail = (event, commitId, githubToken) => {
       sha: "SHA",
       state: "failure",
       description: "The build failed!",
-      context: event.detail["project-name"],
+      context: "CodeBuild",
     }));
     req.end();
   });

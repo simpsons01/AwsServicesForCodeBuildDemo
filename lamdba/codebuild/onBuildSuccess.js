@@ -46,7 +46,7 @@ const updateCommitStatusToSuccess = (event, commitId, githubToken) => {
       sha: "SHA",
       state: "success",
       description: "The build succeeded!",
-      context: event.detail["project-name"],
+      context: "CodeBuild",
     }));
     req.end();
   });
