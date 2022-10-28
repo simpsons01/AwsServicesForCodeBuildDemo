@@ -1,6 +1,12 @@
 const https = require("https")
 const AWS = require("aws-sdk")
 
+const GITHUB_COMMIT_STATE = {
+  SUCCESS: "success",
+  FAILURE: "failure",
+  PENDING: "pending"
+}
+
 const getGithubAccessToken = () => {
   return new Promise((resolve, reject) => {
     const secretKeyArn =
@@ -14,13 +20,43 @@ const getGithubAccessToken = () => {
   });
 };
 
-const updateCommitStatusToSuccess = (event, commitId, githubToken) => {
+const getCommitStatus = (commitId, githubToken) => {
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        method: "GET",
+        hostname: "api.github.com",
+        path: `/repos/simpsons01/CodebuildWithGithubActionDemo/commits/${commitId}/status`,
+        headers: {
+          Authorization: `token ${githubToken}`,
+          Accept: "application/vnd.github.v3+json",
+          "user-agent": "node.js",
+        },
+      },
+      (res) => {
+        const chunks = [];
+        res.on("data", (data) => chunks.push(data));
+        res.on("end", () => {
+          console.log("get github commit status successfully");
+          resolve(Buffer.concat(chunks).toString("utf-8"));
+        });
+      }
+    );
+    req.on("error", (err) => {
+      console.log("fail to get github commit status");
+      reject(err);
+    });
+    req.end();
+  });
+};
+
+const updateCommitStatus = (commitId, state, description, githubToken) => {
   return new Promise((resolve, reject) => {
     const req = https.request(
       {
         method: "POST",
         hostname: "api.github.com",
-        path: `/repos/simpsons01/CodebuildWithActionDemo/statuses/${commitId}`,
+        path: `/repos/simpsons01/CodebuildWithGithubActionDemo/statuses/${commitId}`,
         headers: {
           Authorization: `token ${githubToken}`,
           Accept: "application/vnd.github.v3+json",
@@ -32,7 +68,7 @@ const updateCommitStatusToSuccess = (event, commitId, githubToken) => {
         res.on("data", (data) => chunks.push(data));
         res.on("end", () => {
           console.log("update github commit status successfully");
-          resolve(Buffer.concat(chunks).toString("utf-8"));
+          resolve(JSON.parse(Buffer.concat(chunks).toString("utf-8")));
         });
       }
     );
@@ -44,8 +80,8 @@ const updateCommitStatusToSuccess = (event, commitId, githubToken) => {
       owner: "OWNER",
       repo: "REPO",
       sha: "SHA",
-      state: "success",
-      description: "The build succeeded!",
+      state,
+      description,
       context: "CodeBuild",
     }));
     req.end();
@@ -104,14 +140,32 @@ exports.handler = async function(event, ctx, cb) {
       await wait(3)
       const batchBuildDetail = await getBatchBuildDetail(buildDetail.buildBatchArn)
       console.log(JSON.stringify(batchBuildDetail))
+      const githubAccessToken = await getGithubAccessToken()
       const isBatchBuildSucceeded = checkBatchBuildSucceeded(batchBuildDetail.buildGroups, buildDetail)
       if(isBatchBuildSucceeded) {
-        const githubAccessToken = await getGithubAccessToken()
-        const result = await updateCommitStatusToSuccess(event, commitId, githubAccessToken)
-        console.log(JSON.stringify(result))
+        const result = await updateCommitStatus(
+          commitId, 
+          GITHUB_COMMIT_STATE.SUCCESS, 
+          "The build succeeded!",
+          githubAccessToken
+        )
+        console.log(result)
         cb(null, 200);
       }else {
-        cb(null, 200);
+        const commitStatus = await getCommitStatus(commitId, githubAccessToken)
+        console.log(JSON.stringify(commitStatus))
+        if(commitStatus.state !== GITHUB_COMMIT_STATE.PENDING) {
+          const result = await updateCommitStatus(
+            commitId, 
+            GITHUB_COMMIT_STATE.PENDING, 
+            "The build is in progress",
+            githubAccessToken
+          )
+          console.log(result)
+          cb(null, 200);
+        }else {
+          cb(null, 200);
+        }
       }
     }catch(err) {
       console.log(JSON.stringify(err))

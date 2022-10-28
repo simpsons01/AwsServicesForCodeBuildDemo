@@ -1,6 +1,12 @@
 const https = require("https")
 const AWS = require("aws-sdk")
 
+const GITHUB_COMMIT_STATE = {
+  SUCCESS: "success",
+  FAILURE: "failure",
+  PENDING: "pending"
+}
+
 const getGithubAccessToken = () => {
   return new Promise((resolve, reject) => {
     const secretKeyArn =
@@ -14,13 +20,13 @@ const getGithubAccessToken = () => {
   });
 };
 
-const updateCommitStatusToFail = (event, commitId, githubToken) => {
+const updateCommitStatusToFail = (commitId, state, description ,githubToken) => {
   return new Promise((resolve, reject) => {
     const req = https.request(
       {
         method: "POST",
         hostname: "api.github.com",
-        path: `/repos/simpsons01/CodebuildWithActionDemo/statuses/${commitId}`,
+        path: `/repos/simpsons01/CodebuildWithGithubActionDemo/statuses/${commitId}`,
         headers: {
           Authorization: `token ${githubToken}`,
           Accept: "application/vnd.github.v3+json",
@@ -44,8 +50,8 @@ const updateCommitStatusToFail = (event, commitId, githubToken) => {
       owner: "OWNER",
       repo: "REPO",
       sha: "SHA",
-      state: "failure",
-      description: "The build failed!",
+      state,
+      description,
       context: "CodeBuild",
     }));
     req.end();
@@ -59,7 +65,12 @@ exports.handler = async function(event, ctx, cb) {
     console.log(`source version is ${commitId}`)
     try {
       const githubAccessToken = await getGithubAccessToken()
-      const result = await updateCommitStatusToFail(event, commitId, githubAccessToken)
+      const result = await updateCommitStatusToFail(
+        commitId, 
+        GITHUB_COMMIT_STATE.FAILURE,
+        "The build failed!",
+        githubAccessToken
+      )
       console.log(JSON.stringify(result))
       cb(null, 200);
     }catch(err) {
