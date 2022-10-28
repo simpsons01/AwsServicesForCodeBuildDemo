@@ -60,10 +60,10 @@ exports.handler = async function(event, ctx, cb) {
     try {
       const githubAccessToken = await getGithubAccessToken()
       const result = await updateCommitStatusToFail(event, commitId, githubAccessToken)
-      console.log(result)
+      console.log(JSON.stringify(result))
       cb(null, 200);
     }catch(err) {
-      console.log(err)
+      console.log(JSON.stringify(err))
       cb(Error(JSON.stringify(err)))
     }
   }else {

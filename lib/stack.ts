@@ -1,16 +1,15 @@
+import { Construct } from "constructs";
 import * as cdk from "aws-cdk-lib";
 import * as codebuild from "aws-cdk-lib/aws-codebuild"
 import * as iam from "aws-cdk-lib/aws-iam"
 import * as s3 from "aws-cdk-lib/aws-s3"
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import * as cloudfrontOrigins from "aws-cdk-lib/aws-cloudfront-origins";
-import { Construct } from "constructs";
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as eventTargets from 'aws-cdk-lib/aws-events-targets';
-import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as path from "path"
 
-export class DemoCodeBuildWithGithubDeploymentStack extends cdk.Stack {
+export class DemoCodeBuildWithGithubActionDeploymentStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
@@ -50,7 +49,7 @@ export class DemoCodeBuildWithGithubDeploymentStack extends cdk.Stack {
       ]
     })
 
-    const codebuildProject = new codebuild.Project(this, "DeployProject", {
+    const codebuildProject = new codebuild.Project(this, "CodebuildProject", {
       projectName: "DemoCodeBuildWithGithubDeploymentStack",
       source: codebuild.Source.gitHub({
         owner: "simpsons01",

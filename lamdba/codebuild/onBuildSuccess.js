@@ -77,6 +77,21 @@ const wait = (sec) => {
   return new Promise(resolve => setTimeout(() => resolve(), sec * 1000))
 }
 
+const checkBatchBuildSucceeded = (buildGroups, detailBuild) => {
+  return buildGroups.every(build => {
+    let isBuildSuccess = false
+    if(
+      build.currentBuildSummary.arn === detailBuild.arn &&
+      detailBuild.buildStatus === "SUCCEEDED"
+    ) {
+      isBuildSuccess = true 
+    }else if(build.currentBuildSummary.buildStatus === "SUCCEEDED") {
+      isBuildSuccess = true
+    }
+    return isBuildSuccess
+  })
+}
+
 
 exports.handler = async function(event, ctx, cb) {
   console.log(JSON.stringify(event))
@@ -85,20 +100,21 @@ exports.handler = async function(event, ctx, cb) {
     console.log(`source version is ${commitId}`)
     try {
       const buildDetail = await getBuildDetail(event)
-      console.log(buildDetail)
+      console.log(JSON.stringify(buildDetail))
       await wait(3)
       const batchBuildDetail = await getBatchBuildDetail(buildDetail.buildBatchArn)
-      console.log(batchBuildDetail)
-      if(batchBuildDetail.buildBatchStatus === "SUCCEEDED") {
+      console.log(JSON.stringify(batchBuildDetail))
+      const isBatchBuildSucceeded = checkBatchBuildSucceeded(batchBuildDetail.buildGroups, buildDetail)
+      if(isBatchBuildSucceeded) {
         const githubAccessToken = await getGithubAccessToken()
         const result = await updateCommitStatusToSuccess(event, commitId, githubAccessToken)
-        console.log(result)
+        console.log(JSON.stringify(result))
         cb(null, 200);
       }else {
         cb(null, 200);
       }
     }catch(err) {
-      console.log(err)
+      console.log(JSON.stringify(err))
       cb(Error(JSON.stringify(err)))
     }
   }else {
