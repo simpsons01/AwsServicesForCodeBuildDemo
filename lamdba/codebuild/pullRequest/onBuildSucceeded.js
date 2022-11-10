@@ -20,7 +20,7 @@ const getGithubAccessToken = () => {
   });
 };
 
-const updateCommitStatusToFail = (commitId, state, description ,githubToken) => {
+const updateCommitStatus = (commitId, state, description ,githubToken) => {
   return new Promise((resolve, reject) => {
     const req = https.request(
       {
@@ -60,15 +60,16 @@ const updateCommitStatusToFail = (commitId, state, description ,githubToken) => 
 
 
 exports.handler = async function(event, ctx, cb) {
+  console.log(JSON.stringify(event))
   const commitId = event.detail["additional-information"]["source-version"]
   if(commitId) {
     console.log(`source version is ${commitId}`)
     try {
       const githubAccessToken = await getGithubAccessToken()
-      const result = await updateCommitStatusToFail(
+      const result = await updateCommitStatus(
         commitId, 
-        GITHUB_COMMIT_STATE.FAILURE,
-        "The build failed!",
+        GITHUB_COMMIT_STATE.SUCCESS,
+        "The pull request build succeeded!",
         githubAccessToken
       )
       console.log(JSON.stringify(result))

@@ -9,35 +9,142 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as eventTargets from 'aws-cdk-lib/aws-events-targets';
 import * as path from "path"
 
+const githubSourceConfig = {
+  owner: "simpsons01",
+  repo: "CodebuildWithActionProject",
+  reportBuildStatus: false
+}
+
+class PullRequestBuildProjectConstruct extends Construct  {
+  component: {
+    project: cdk.aws_codebuild.Project | null
+    buildSucceededLambda: cdk.aws_lambda.Function | null
+    buildFailedLambda: cdk.aws_lambda.Function | null
+  } = {
+    project: null,
+    buildSucceededLambda: null,
+    buildFailedLambda: null
+  }
+
+  constructor(scope: Construct, id: string) {
+    super(scope, id)
+
+    this.component.project = new codebuild.Project(scope, "PullRequestBuildProject", {
+      buildSpec: codebuild.BuildSpec.fromSourceFilename("buildspec.pullrequest.yml"),
+      projectName: "PullRequestBuild",
+      source: codebuild.Source.gitHub(githubSourceConfig),
+      environment: {
+        buildImage: codebuild.LinuxBuildImage.AMAZON_LINUX_2_4,
+      },
+      cache: codebuild.Cache.local(codebuild.LocalCacheMode.SOURCE)
+    });
+    
+    // onBuildFailed
+    const onBuildFailedRule = this.component.project.onBuildFailed("PullRequestBuildFailedRule")
+
+    this.component.buildFailedLambda = new lambda.Function(scope, 'PullRequestBuildFailedLambdaFunc', {
+      runtime: lambda.Runtime.NODEJS_14_X,
+      handler: 'onBuildFailed.handler',
+      code: lambda.Code.fromAsset(path.join(__dirname, '../lamdba/codebuild/pullRequest')),
+    });
+
+    onBuildFailedRule.addTarget(new eventTargets.LambdaFunction(this.component.buildFailedLambda as cdk.aws_lambda.Function))
+
+    // onBuildSucceeded
+    const onBuildSucceededRule = this.component.project.onBuildSucceeded("PullRequestBuildSucceededRule")
+
+    this.component.buildSucceededLambda = new lambda.Function(scope, 'PullRequestBuildSucceededLambdaFunc', {
+      runtime: lambda.Runtime.NODEJS_14_X,
+      handler: 'onBuildSucceeded.handler',
+      code: lambda.Code.fromAsset(path.join(__dirname, '../lamdba/codebuild/pullRequest')),
+      timeout: cdk.Duration.seconds(6)
+    });
+
+    onBuildSucceededRule.addTarget(new eventTargets.LambdaFunction(this.component.buildSucceededLambda as cdk.aws_lambda.Function))
+  }
+}
+
+class DeployBuildProjectConstruct extends Construct {
+  component: {
+    project: cdk.aws_codebuild.Project | null
+    buildSucceededLambda: cdk.aws_lambda.Function | null
+    buildFailedLambda: cdk.aws_lambda.Function | null
+  } = {
+    project: null,
+    buildSucceededLambda: null,
+    buildFailedLambda: null
+  }
+
+  constructor(
+    scope: Construct, 
+    id: string, 
+    environmentVariables: {
+      [key: string]: cdk.aws_codebuild.BuildEnvironmentVariable
+    } 
+  ) {
+    super(scope, id)
+
+    this.component.project = new codebuild.Project(scope, "DeployBuildProject", {
+      buildSpec: codebuild.BuildSpec.fromSourceFilename("buildspec.deploy.yml"),
+      projectName: "DeployBuild",
+      source: codebuild.Source.gitHub(githubSourceConfig),
+      environment: {
+        buildImage: codebuild.LinuxBuildImage.AMAZON_LINUX_2_4,
+        environmentVariables,
+      },
+      cache: codebuild.Cache.local(codebuild.LocalCacheMode.SOURCE)
+    });
+
+    this.component.project.enableBatchBuilds()
+
+    // onBuildFailed
+    const onBuildFailedRule = this.component.project.onBuildFailed("DeployBuildFailedRule")
+
+    this.component.buildFailedLambda = new lambda.Function(scope, 'DeployBuildFailedLambdaFunc', {
+      runtime: lambda.Runtime.NODEJS_14_X,
+      handler: 'onBuildFailed.handler',
+      code: lambda.Code.fromAsset(path.join(__dirname, '../lamdba/codebuild/deploy')),
+    });
+
+    onBuildFailedRule.addTarget(new eventTargets.LambdaFunction(this.component.buildFailedLambda as cdk.aws_lambda.Function))
+
+    // onBuildSucceeded
+    const onBuildSucceededRule = this.component.project.onBuildSucceeded("DeployBuildSucceededRule")
+
+    this.component.buildSucceededLambda = new lambda.Function(scope, 'DeployBuildSucceededLambdaFunc', {
+      runtime: lambda.Runtime.NODEJS_14_X,
+      handler: 'onBuildSucceeded.handler',
+      code: lambda.Code.fromAsset(path.join(__dirname, '../lamdba/codebuild/deploy')),
+      timeout: cdk.Duration.seconds(6)
+    });
+
+    const codeBuildProjectPolicyStatement = new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        "codebuild:*"
+      ],
+      resources: [
+        this.component.project.projectArn
+      ]
+    })
+
+    this.component.buildSucceededLambda.addToRolePolicy(codeBuildProjectPolicyStatement)
+
+    onBuildSucceededRule.addTarget(new eventTargets.LambdaFunction(this.component.buildSucceededLambda as cdk.aws_lambda.Function))
+  }
+}
+
 export class DemoCodeBuildWithGithubActionDeploymentStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
     const deployBucket = new s3.Bucket(this, "DeployBucket")
 
-    const deployS3BucketPolicyStatement = new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        "s3:PutObject"
-      ],
-      resources: [
-        `${deployBucket.bucketArn}/*`
-      ]
-    })
-
     const cloudfrontDistribution = new cloudfront.Distribution(this, "CloudfrontDistribution", {
       defaultBehavior: { 
         origin: new cloudfrontOrigins.S3Origin(deployBucket) 
       }
     });
-
-    const cloudfrontPolicyStatement = new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        "cloudfront:*"
-      ],
-      resources: ['*']
-    })
 
     const githubTokenSecretManagerPolicyStatement = new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
@@ -49,69 +156,49 @@ export class DemoCodeBuildWithGithubActionDeploymentStack extends cdk.Stack {
       ]
     })
 
-    const codebuildProject = new codebuild.Project(this, "CodebuildProject", {
-      projectName: "DemoCodeBuildWithGithubDeploymentStack",
-      source: codebuild.Source.gitHub({
-        owner: "simpsons01",
-        repo: "CodebuildWithActionProject"
-      }),
-      environment: {
-        buildImage: codebuild.LinuxBuildImage.AMAZON_LINUX_2_4,
-        environmentVariables: {
-          DEPLOY_S3: {
-            value: deployBucket.bucketName
-          },
-          CDN_URL: {
-            value: cloudfrontDistribution.domainName
-          }
-        },
-      },
-      cache: codebuild.Cache.local(codebuild.LocalCacheMode.SOURCE)
-    });
-
-    codebuildProject.enableBatchBuilds()
-
-    codebuildProject.addToRolePolicy(deployS3BucketPolicyStatement)
-
-    codebuildProject.addToRolePolicy(cloudfrontPolicyStatement)
-
-    const codeBuildProjectPolicyStatement = new iam.PolicyStatement({
+    const cloudfrontPolicyStatement = new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
-        "codebuild:*"
+        "cloudfront:*"
+      ],
+      resources: ['*']
+    })
+
+    const deployS3BucketPolicyStatement = new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        "s3:PutObject"
       ],
       resources: [
-        codebuildProject.projectArn
+        `${deployBucket.bucketArn}/*`
       ]
     })
 
-    const onBuildFailedRule = codebuildProject.onBuildFailed("CodeBuildFailedRule")
+    const pullRequestBuildProject = new PullRequestBuildProjectConstruct(this, "PullRequestBuildProjectConstruct");
 
-    const onCodeBuildFailLambdaFunc = new lambda.Function(this, 'CodeBuildFailLambdaFunc', {
-      runtime: lambda.Runtime.NODEJS_14_X,
-      handler: 'onBuildFail.handler',
-      code: lambda.Code.fromAsset(path.join(__dirname, '../lamdba/codebuild')),
+    (pullRequestBuildProject.component.project as cdk.aws_codebuild.Project).addToRolePolicy(githubTokenSecretManagerPolicyStatement);
+
+    (pullRequestBuildProject.component.buildSucceededLambda as cdk.aws_lambda.Function).addToRolePolicy(githubTokenSecretManagerPolicyStatement);
+
+    (pullRequestBuildProject.component.buildFailedLambda as cdk.aws_lambda.Function).addToRolePolicy(githubTokenSecretManagerPolicyStatement);
+
+    const deployBuildProject = new DeployBuildProjectConstruct(this, "DeployBuildProjectConstruct", {
+      DEPLOY_S3: {
+        value: deployBucket.bucketName
+      },
+      CDN_URL: {
+        value: cloudfrontDistribution.domainName
+      }
     });
 
-    onCodeBuildFailLambdaFunc.addToRolePolicy(githubTokenSecretManagerPolicyStatement)
+    (deployBuildProject.component.project as cdk.aws_codebuild.Project).addToRolePolicy(githubTokenSecretManagerPolicyStatement);
 
-    onBuildFailedRule.addTarget(new eventTargets.LambdaFunction(onCodeBuildFailLambdaFunc))
+    (deployBuildProject.component.project as cdk.aws_codebuild.Project).addToRolePolicy(deployS3BucketPolicyStatement);
 
-    const onBuildSuccessRule = codebuildProject.onBuildSucceeded("CodeBuildSuccessRule")
+    (deployBuildProject.component.project as cdk.aws_codebuild.Project).addToRolePolicy(cloudfrontPolicyStatement);
 
-    const onCodeBuildSuccessLambdaFunc = new lambda.Function(this, 'CodeBuildSuccessLambdaFunc', {
-      runtime: lambda.Runtime.NODEJS_14_X,
-      handler: 'onBuildSuccess.handler',
-      code: lambda.Code.fromAsset(path.join(__dirname, '../lamdba/codebuild')),
-      timeout: cdk.Duration.seconds(6)
-    });
+    (deployBuildProject.component.buildSucceededLambda as cdk.aws_lambda.Function).addToRolePolicy(githubTokenSecretManagerPolicyStatement);
 
-    onCodeBuildSuccessLambdaFunc.addToRolePolicy(githubTokenSecretManagerPolicyStatement)
-
-    onCodeBuildSuccessLambdaFunc.addToRolePolicy(codeBuildProjectPolicyStatement)
-
-    onBuildSuccessRule.addTarget(new eventTargets.LambdaFunction(onCodeBuildSuccessLambdaFunc))
-
-
+    (deployBuildProject.component.buildFailedLambda as cdk.aws_lambda.Function).addToRolePolicy(githubTokenSecretManagerPolicyStatement)
   }
 }

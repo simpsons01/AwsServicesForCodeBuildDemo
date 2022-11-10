@@ -109,9 +109,6 @@ const getBatchBuildDetail = (batchBuildId) => {
   });
 };
 
-const wait = (sec) => {
-  return new Promise(resolve => setTimeout(() => resolve(), sec * 1000))
-}
 
 const checkBatchBuildSucceeded = (buildGroups, detailBuild) => {
   return buildGroups.every(build => {
@@ -137,7 +134,6 @@ exports.handler = async function(event, ctx, cb) {
     try {
       const buildDetail = await getBuildDetail(event)
       console.log(JSON.stringify(buildDetail))
-      await wait(3)
       const batchBuildDetail = await getBatchBuildDetail(buildDetail.buildBatchArn)
       console.log(JSON.stringify(batchBuildDetail))
       const githubAccessToken = await getGithubAccessToken()
@@ -146,7 +142,7 @@ exports.handler = async function(event, ctx, cb) {
         const result = await updateCommitStatus(
           commitId, 
           GITHUB_COMMIT_STATE.SUCCESS, 
-          "The build succeeded!",
+          "The deploy build succeeded!",
           githubAccessToken
         )
         console.log(result)
@@ -158,7 +154,7 @@ exports.handler = async function(event, ctx, cb) {
           const result = await updateCommitStatus(
             commitId, 
             GITHUB_COMMIT_STATE.PENDING, 
-            "The build is in progress",
+            "The deploy build is in progress",
             githubAccessToken
           )
           console.log(result)
