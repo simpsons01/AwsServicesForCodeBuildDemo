@@ -202,9 +202,28 @@ export class DemoCodeBuildWithGithubActionDeploymentStack extends cdk.Stack {
     const deployBucket = new s3.Bucket(this, "DeployBucket")
 
     const logBucket = new s3.Bucket(this, "logBucket", {
-      publicReadAccess: true,
       bucketName: "demo-github-action-with-codebuild-log-bucket"
     })
+
+    const restrictGetS3ObjectIpRangePolicyStatement = new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      principals: [new iam.AnyPrincipal()],
+      actions: [
+        "s3:GetObject"
+      ],
+      resources: [
+        `${logBucket.bucketArn}/*`
+      ],
+      conditions: {
+        IpAddress: {
+          "aws:SourceIp": [
+            "60.251.45.137/32",
+          ]
+        }
+      }
+    })
+
+    logBucket.addToResourcePolicy(restrictGetS3ObjectIpRangePolicyStatement)
 
     const cloudfrontDistribution = new cloudfront.Distribution(this, "CloudfrontDistribution", {
       defaultBehavior: { 
