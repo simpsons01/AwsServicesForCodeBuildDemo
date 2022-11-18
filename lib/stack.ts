@@ -7,6 +7,7 @@ import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import * as cloudfrontOrigins from "aws-cdk-lib/aws-cloudfront-origins";
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as eventTargets from 'aws-cdk-lib/aws-events-targets';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import * as path from "path"
 
 const githubSourceConfig = {
@@ -20,14 +21,20 @@ class PullRequestBuildProjectConstruct extends Construct  {
     project: cdk.aws_codebuild.Project | null
     buildSucceededLambda: cdk.aws_lambda.Function | null
     buildFailedLambda: cdk.aws_lambda.Function | null
+    logGroup: cdk.aws_logs.LogGroup | null
   } = {
     project: null,
     buildSucceededLambda: null,
-    buildFailedLambda: null
+    buildFailedLambda: null,
+    logGroup: null
   }
 
   constructor(scope: Construct, id: string) {
     super(scope, id)
+
+    this.component.logGroup = new logs.LogGroup(scope, 'PullRequestBuildProjectLogsGroup', {
+      logGroupName: "/aws/codebuild/PullRequestBuild"
+    });
 
     this.component.project = new codebuild.Project(scope, "PullRequestBuildProject", {
       buildSpec: codebuild.BuildSpec.fromSourceFilename("buildspec.pullrequest.yml"),
@@ -36,7 +43,12 @@ class PullRequestBuildProjectConstruct extends Construct  {
       environment: {
         buildImage: codebuild.LinuxBuildImage.AMAZON_LINUX_2_4,
       },
-      cache: codebuild.Cache.local(codebuild.LocalCacheMode.SOURCE)
+      cache: codebuild.Cache.local(codebuild.LocalCacheMode.SOURCE),
+      logging: {
+        cloudWatch:{
+          logGroup: (this.component.logGroup as cdk.aws_logs.LogGroup)
+        }
+      }
     });
     
     // onBuildFailed
@@ -47,6 +59,16 @@ class PullRequestBuildProjectConstruct extends Construct  {
       handler: 'onBuildFailed.handler',
       code: lambda.Code.fromAsset(path.join(__dirname, '../lamdba/codebuild/pullRequest')),
     });
+
+    this.component.buildFailedLambda.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        "logs:*"
+      ],
+      resources: [
+        this.component.logGroup.logGroupArn
+      ]
+    }))
 
     onBuildFailedRule.addTarget(new eventTargets.LambdaFunction(this.component.buildFailedLambda as cdk.aws_lambda.Function))
 
@@ -60,6 +82,16 @@ class PullRequestBuildProjectConstruct extends Construct  {
       timeout: cdk.Duration.seconds(6)
     });
 
+    this.component.buildSucceededLambda.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        "logs:*"
+      ],
+      resources: [
+        this.component.logGroup.logGroupArn
+      ]
+    }))
+
     onBuildSucceededRule.addTarget(new eventTargets.LambdaFunction(this.component.buildSucceededLambda as cdk.aws_lambda.Function))
   }
 }
@@ -69,10 +101,12 @@ class DeployBuildProjectConstruct extends Construct {
     project: cdk.aws_codebuild.Project | null
     buildSucceededLambda: cdk.aws_lambda.Function | null
     buildFailedLambda: cdk.aws_lambda.Function | null
+    logGroup: cdk.aws_logs.LogGroup | null
   } = {
     project: null,
     buildSucceededLambda: null,
-    buildFailedLambda: null
+    buildFailedLambda: null,
+    logGroup: null
   }
 
   constructor(
@@ -84,6 +118,10 @@ class DeployBuildProjectConstruct extends Construct {
   ) {
     super(scope, id)
 
+    this.component.logGroup = new logs.LogGroup(scope, 'DeployBuildProjectLogsGroup', {
+      logGroupName: "/aws/codebuild/DeployBuild"
+    });
+
     this.component.project = new codebuild.Project(scope, "DeployBuildProject", {
       buildSpec: codebuild.BuildSpec.fromSourceFilename("buildspec.deploy.yml"),
       projectName: "DeployBuild",
@@ -92,7 +130,12 @@ class DeployBuildProjectConstruct extends Construct {
         buildImage: codebuild.LinuxBuildImage.AMAZON_LINUX_2_4,
         environmentVariables,
       },
-      cache: codebuild.Cache.local(codebuild.LocalCacheMode.SOURCE)
+      cache: codebuild.Cache.local(codebuild.LocalCacheMode.SOURCE),
+      logging: {
+        cloudWatch:{
+          logGroup: (this.component.logGroup as cdk.aws_logs.LogGroup)
+        }
+      }
     });
 
     this.component.project.enableBatchBuilds()
@@ -106,6 +149,16 @@ class DeployBuildProjectConstruct extends Construct {
       code: lambda.Code.fromAsset(path.join(__dirname, '../lamdba/codebuild/deploy')),
     });
 
+    this.component.buildFailedLambda.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        "logs:*"
+      ],
+      resources: [
+        this.component.logGroup.logGroupArn
+      ]
+    }))
+
     onBuildFailedRule.addTarget(new eventTargets.LambdaFunction(this.component.buildFailedLambda as cdk.aws_lambda.Function))
 
     // onBuildSucceeded
@@ -118,7 +171,7 @@ class DeployBuildProjectConstruct extends Construct {
       timeout: cdk.Duration.seconds(6)
     });
 
-    const codeBuildProjectPolicyStatement = new iam.PolicyStatement({
+    this.component.buildSucceededLambda.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
         "codebuild:*"
@@ -126,9 +179,17 @@ class DeployBuildProjectConstruct extends Construct {
       resources: [
         this.component.project.projectArn
       ]
-    })
+    }))
 
-    this.component.buildSucceededLambda.addToRolePolicy(codeBuildProjectPolicyStatement)
+    this.component.buildSucceededLambda.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        "logs:*"
+      ],
+      resources: [
+        this.component.logGroup.logGroupArn
+      ]
+    }))
 
     onBuildSucceededRule.addTarget(new eventTargets.LambdaFunction(this.component.buildSucceededLambda as cdk.aws_lambda.Function))
   }
@@ -140,19 +201,25 @@ export class DemoCodeBuildWithGithubActionDeploymentStack extends cdk.Stack {
 
     const deployBucket = new s3.Bucket(this, "DeployBucket")
 
+    const logBucket = new s3.Bucket(this, "logBucket", {
+      publicReadAccess: true,
+      bucketName: "demo-github-action-with-codebuild-log-bucket"
+    })
+
     const cloudfrontDistribution = new cloudfront.Distribution(this, "CloudfrontDistribution", {
       defaultBehavior: { 
         origin: new cloudfrontOrigins.S3Origin(deployBucket) 
       }
     });
 
-    const githubTokenSecretManagerPolicyStatement = new iam.PolicyStatement({
+    const GetSecretManagerPolicyStatement = new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
         "secretsmanager:GetSecretValue"
       ],
       resources: [
-        "arn:aws:secretsmanager:ap-northeast-1:171191418924:secret:GITHUB_PERSONAL_ACCESS_TOKEN-L5J3rs"
+        "arn:aws:secretsmanager:ap-northeast-1:171191418924:secret:GITHUB_PERSONAL_ACCESS_TOKEN-L5J3rs",
+        "arn:aws:secretsmanager:ap-northeast-1:171191418924:secret:SLACK_APP_BOT_TOKEN-UMa3KN"
       ]
     })
 
@@ -164,7 +231,7 @@ export class DemoCodeBuildWithGithubActionDeploymentStack extends cdk.Stack {
       resources: ['*']
     })
 
-    const deployS3BucketPolicyStatement = new iam.PolicyStatement({
+    const deployS3BucketWritePolicyStatement = new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
         "s3:PutObject"
@@ -174,13 +241,27 @@ export class DemoCodeBuildWithGithubActionDeploymentStack extends cdk.Stack {
       ]
     })
 
+    const logS3BucketWritePolicyStatement = new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        "s3:PutObject"
+      ],
+      resources: [
+        `${logBucket.bucketArn}/*`
+      ]
+    })
+
     const pullRequestBuildProject = new PullRequestBuildProjectConstruct(this, "PullRequestBuildProjectConstruct");
 
-    (pullRequestBuildProject.component.project as cdk.aws_codebuild.Project).addToRolePolicy(githubTokenSecretManagerPolicyStatement);
+    (pullRequestBuildProject.component.project as cdk.aws_codebuild.Project).addToRolePolicy(GetSecretManagerPolicyStatement);
 
-    (pullRequestBuildProject.component.buildSucceededLambda as cdk.aws_lambda.Function).addToRolePolicy(githubTokenSecretManagerPolicyStatement);
+    (pullRequestBuildProject.component.buildSucceededLambda as cdk.aws_lambda.Function).addToRolePolicy(GetSecretManagerPolicyStatement);
 
-    (pullRequestBuildProject.component.buildFailedLambda as cdk.aws_lambda.Function).addToRolePolicy(githubTokenSecretManagerPolicyStatement);
+    (pullRequestBuildProject.component.buildSucceededLambda as cdk.aws_lambda.Function).addToRolePolicy(logS3BucketWritePolicyStatement);
+
+    (pullRequestBuildProject.component.buildFailedLambda as cdk.aws_lambda.Function).addToRolePolicy(GetSecretManagerPolicyStatement);
+
+    (pullRequestBuildProject.component.buildFailedLambda as cdk.aws_lambda.Function).addToRolePolicy(logS3BucketWritePolicyStatement);
 
     const deployBuildProject = new DeployBuildProjectConstruct(this, "DeployBuildProjectConstruct", {
       DEPLOY_S3: {
@@ -191,14 +272,18 @@ export class DemoCodeBuildWithGithubActionDeploymentStack extends cdk.Stack {
       }
     });
 
-    (deployBuildProject.component.project as cdk.aws_codebuild.Project).addToRolePolicy(githubTokenSecretManagerPolicyStatement);
+    (deployBuildProject.component.project as cdk.aws_codebuild.Project).addToRolePolicy(GetSecretManagerPolicyStatement);
 
-    (deployBuildProject.component.project as cdk.aws_codebuild.Project).addToRolePolicy(deployS3BucketPolicyStatement);
+    (deployBuildProject.component.project as cdk.aws_codebuild.Project).addToRolePolicy(deployS3BucketWritePolicyStatement);
 
     (deployBuildProject.component.project as cdk.aws_codebuild.Project).addToRolePolicy(cloudfrontPolicyStatement);
 
-    (deployBuildProject.component.buildSucceededLambda as cdk.aws_lambda.Function).addToRolePolicy(githubTokenSecretManagerPolicyStatement);
+    (deployBuildProject.component.buildSucceededLambda as cdk.aws_lambda.Function).addToRolePolicy(GetSecretManagerPolicyStatement);
 
-    (deployBuildProject.component.buildFailedLambda as cdk.aws_lambda.Function).addToRolePolicy(githubTokenSecretManagerPolicyStatement)
+    (deployBuildProject.component.buildSucceededLambda as cdk.aws_lambda.Function).addToRolePolicy(logS3BucketWritePolicyStatement);
+
+    (deployBuildProject.component.buildFailedLambda as cdk.aws_lambda.Function).addToRolePolicy(GetSecretManagerPolicyStatement);
+
+    (deployBuildProject.component.buildFailedLambda as cdk.aws_lambda.Function).addToRolePolicy(logS3BucketWritePolicyStatement);
   }
 }

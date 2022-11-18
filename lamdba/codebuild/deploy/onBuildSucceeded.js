@@ -1,18 +1,62 @@
 const https = require("https")
 const AWS = require("aws-sdk")
 
+const LOG_BUCKET_NAME = "demo-github-action-with-codebuild-log-bucket"
+
+const S3_BUCKET_URL = "https://demo-github-action-with-codebuild-log-bucket.s3.ap-northeast-1.amazonaws.com"
+
 const GITHUB_COMMIT_STATE = {
   SUCCESS: "success",
   FAILURE: "failure",
   PENDING: "pending"
 }
 
+const BUILD_SCOPES = [
+  {
+    buildspecFileName: "buildspec.deploy.about.yml",
+    identifier: "About"
+  },
+  {
+    buildspecFileName: "buildspec.deploy.home.yml",
+    identifier: "Home"
+  }
+]
+
+const checkIsInBuildScopes = buildspecFileName => BUILD_SCOPES.some((buildScope => buildScope.buildspecFileName === buildspecFileName ))
+
+const uploadLogFileToS3 = (title, content) => {
+  return new Promise((resolve, reject) => {
+    const htmlTemplate = `
+      <!doctype html>
+      <html>
+        <head>
+          <title>${title}</title>
+        </head>
+        <body>
+          <p>${content.replace(/\n/g, "<br>")}</p>
+        </body>
+      </html>
+    `
+    const s3 = new AWS.S3()
+    const param = {
+      Bucket: LOG_BUCKET_NAME,
+      Key:`${title}.html`,
+      Body: htmlTemplate,
+      ContentType: "text/html; charset=UTF-8"
+    }
+    s3.upload(param, function(err, data) {
+      if(err) return reject(err)
+      resolve(data)
+    })
+  })
+}
+
 const getGithubAccessToken = () => {
   return new Promise((resolve, reject) => {
     const secretKeyArn =
       "arn:aws:secretsmanager:ap-northeast-1:171191418924:secret:GITHUB_PERSONAL_ACCESS_TOKEN-L5J3rs";
-    const client = new AWS.SecretsManager({ region: "ap-northeast-1" });
-    client.getSecretValue({ SecretId: secretKeyArn }, (err, data) => {
+    const secretsManager = new AWS.SecretsManager({ region: "ap-northeast-1" });
+    secretsManager.getSecretValue({ SecretId: secretKeyArn }, (err, data) => {
       if (err) return reject(err);
       const githubToken = JSON.parse(data.SecretString).value;
       resolve(githubToken);
@@ -20,37 +64,7 @@ const getGithubAccessToken = () => {
   });
 };
 
-const getCommitStatus = (commitId, githubToken) => {
-  return new Promise((resolve, reject) => {
-    const req = https.request(
-      {
-        method: "GET",
-        hostname: "api.github.com",
-        path: `/repos/simpsons01/CodebuildWithGithubActionDemo/commits/${commitId}/status`,
-        headers: {
-          Authorization: `token ${githubToken}`,
-          Accept: "application/vnd.github.v3+json",
-          "user-agent": "node.js",
-        },
-      },
-      (res) => {
-        const chunks = [];
-        res.on("data", (data) => chunks.push(data));
-        res.on("end", () => {
-          console.log("get github commit status successfully");
-          resolve(Buffer.concat(chunks).toString("utf-8"));
-        });
-      }
-    );
-    req.on("error", (err) => {
-      console.log("fail to get github commit status");
-      reject(err);
-    });
-    req.end();
-  });
-};
-
-const updateCommitStatus = (commitId, state, description, githubToken) => {
+const updateCommitStatus = (commitId, state, context, description, link, githubToken) => {
   return new Promise((resolve, reject) => {
     const req = https.request(
       {
@@ -82,90 +96,56 @@ const updateCommitStatus = (commitId, state, description, githubToken) => {
       sha: "SHA",
       state,
       description,
-      context: "CodeBuild",
+      context,
+      target_url: link
     }));
     req.end();
   });
 };
 
-const getBuildDetail = (event) => {
+const getLogs = (logGroupName, logStreamName) => {
   return new Promise((resolve, reject) => {
-    const buildId = event.detail["build-id"];
-    const client = new AWS.CodeBuild();
-    client.batchGetBuilds({ ids: [ buildId ] }, (err, data) => {
+    const cloudWatchLogs = new AWS.CloudWatchLogs();
+    cloudWatchLogs.getLogEvents({ logGroupName, logStreamName }, (err, data) => {
       if (err) return reject(err);
-      resolve(data.builds[0]);
+      const logMessages = data.events.reduce((acc, { message  }) => acc + message, "")
+      resolve(logMessages);
     });
   });
-};
-
-const getBatchBuildDetail = (batchBuildId) => {
-  return new Promise((resolve, reject) => {
-    const client = new AWS.CodeBuild();
-    client.batchGetBuildBatches({ ids: [ batchBuildId ] }, (err, data) => {
-      if (err) return reject(err);
-      resolve(data.buildBatches[0]);
-    });
-  });
-};
-
-
-const checkBatchBuildSucceeded = (buildGroups, detailBuild) => {
-  return buildGroups.every(build => {
-    let isBuildSuccess = false
-    if(
-      build.currentBuildSummary.arn === detailBuild.arn &&
-      detailBuild.buildStatus === "SUCCEEDED"
-    ) {
-      isBuildSuccess = true 
-    }else if(build.currentBuildSummary.buildStatus === "SUCCEEDED") {
-      isBuildSuccess = true
-    }
-    return isBuildSuccess
-  })
 }
 
 
 exports.handler = async function(event, ctx, cb) {
   console.log(JSON.stringify(event))
   const commitId = event.detail["additional-information"]["source-version"]
+  const eventBuildspecFileName = event.detail["additional-information"].source.buildspec
   if(commitId) {
     console.log(`source version is ${commitId}`)
-    try {
-      const buildDetail = await getBuildDetail(event)
-      console.log(JSON.stringify(buildDetail))
-      const batchBuildDetail = await getBatchBuildDetail(buildDetail.buildBatchArn)
-      console.log(JSON.stringify(batchBuildDetail))
-      const githubAccessToken = await getGithubAccessToken()
-      const isBatchBuildSucceeded = checkBatchBuildSucceeded(batchBuildDetail.buildGroups, buildDetail)
-      if(isBatchBuildSucceeded) {
+    const isInBuildScope = checkIsInBuildScopes(eventBuildspecFileName)
+    if(isInBuildScope) {
+      try {
+        const buildScope = BUILD_SCOPES.find(({ buildspecFileName }) => buildspecFileName === eventBuildspecFileName)
+        const logGroupName = event.detail["additional-information"].logs["group-name"]
+        const logStreamName = event.detail["additional-information"].logs["stream-name"]
+        const githubAccessToken = await getGithubAccessToken()
+        const logsMessages = await getLogs(logGroupName, logStreamName)
+        await uploadLogFileToS3(logStreamName, logsMessages)
         const result = await updateCommitStatus(
           commitId, 
           GITHUB_COMMIT_STATE.SUCCESS, 
-          "The deploy build succeeded!",
+          `${buildScope.identifier} CodeBuild`,
+          `The deploy succeeded!`,
+          `${S3_BUCKET_URL}/${logStreamName}.html`,
           githubAccessToken
         )
         console.log(result)
         cb(null, 200);
-      }else {
-        const commitStatus = await getCommitStatus(commitId, githubAccessToken)
-        console.log(JSON.stringify(commitStatus))
-        if(commitStatus.state !== GITHUB_COMMIT_STATE.PENDING) {
-          const result = await updateCommitStatus(
-            commitId, 
-            GITHUB_COMMIT_STATE.PENDING, 
-            "The deploy build is in progress",
-            githubAccessToken
-          )
-          console.log(result)
-          cb(null, 200);
-        }else {
-          cb(null, 200);
-        }
+      }catch(err) {
+        console.log(JSON.stringify(err))
+        cb(Error(JSON.stringify(err)))
       }
-    }catch(err) {
-      console.log(JSON.stringify(err))
-      cb(Error(JSON.stringify(err)))
+    }else {
+      cb(null, 200)
     }
   }else {
     console.log("commit id is not found")

@@ -1,18 +1,49 @@
 const https = require("https")
 const AWS = require("aws-sdk")
 
+const LOG_BUCKET_NAME = "demo-github-action-with-codebuild-log-bucket"
+
+const S3_BUCKET_URL = "https://demo-github-action-with-codebuild-log-bucket.s3.ap-northeast-1.amazonaws.com"
+
 const GITHUB_COMMIT_STATE = {
   SUCCESS: "success",
   FAILURE: "failure",
   PENDING: "pending"
 }
 
+const uploadLogFileToS3 = (title, content) => {
+  return new Promise((resolve, reject) => {
+    const htmlTemplate = `
+      <!doctype html>
+      <html>
+        <head>
+          <title>${title}</title>
+        </head>
+        <body>
+          <p>${content.replace(/\n/g, "<br>")}</p>
+        </body>
+      </html>
+    `
+    const s3 = new AWS.S3()
+    const param = {
+      Bucket: LOG_BUCKET_NAME,
+      Key:`${title}.html`,
+      Body: htmlTemplate,
+      ContentType: "text/html; charset=UTF-8"
+    }
+    s3.upload(param, function(err, data) {
+      if(err) return reject(err)
+      resolve(data)
+    })
+  })
+}
+
 const getGithubAccessToken = () => {
   return new Promise((resolve, reject) => {
     const secretKeyArn =
       "arn:aws:secretsmanager:ap-northeast-1:171191418924:secret:GITHUB_PERSONAL_ACCESS_TOKEN-L5J3rs";
-    const client = new AWS.SecretsManager({ region: "ap-northeast-1" });
-    client.getSecretValue({ SecretId: secretKeyArn }, (err, data) => {
+    const secretsManager = new AWS.SecretsManager({ region: "ap-northeast-1" });
+    secretsManager.getSecretValue({ SecretId: secretKeyArn }, (err, data) => {
       if (err) return reject(err);
       const githubToken = JSON.parse(data.SecretString).value;
       resolve(githubToken);
@@ -20,7 +51,7 @@ const getGithubAccessToken = () => {
   });
 };
 
-const updateCommitStatus = (commitId, state, description ,githubToken) => {
+const updateCommitStatus = (commitId, state, description, link, githubToken) => {
   return new Promise((resolve, reject) => {
     const req = https.request(
       {
@@ -52,11 +83,23 @@ const updateCommitStatus = (commitId, state, description ,githubToken) => {
       sha: "SHA",
       state,
       description,
+      target_url: link,
       context: "CodeBuild",
     }));
     req.end();
   });
 };
+
+const getLogs = (logGroupName, logStreamName) => {
+  return new Promise((resolve, reject) => {
+    const cloudWatchLogs = new AWS.CloudWatchLogs();
+    cloudWatchLogs.getLogEvents({ logGroupName, logStreamName }, (err, data) => {
+      if (err) return reject(err);
+      const logMessages = data.events.reduce((acc, { message  }) => acc + message, "")
+      resolve(logMessages);
+    });
+  });
+}
 
 
 exports.handler = async function(event, ctx, cb) {
@@ -65,11 +108,16 @@ exports.handler = async function(event, ctx, cb) {
   if(commitId) {
     console.log(`source version is ${commitId}`)
     try {
+      const logGroupName = event.detail["additional-information"].logs["group-name"]
+      const logStreamName = event.detail["additional-information"].logs["stream-name"]
       const githubAccessToken = await getGithubAccessToken()
+      const logsMessages = await getLogs(logGroupName, logStreamName)
+      await uploadLogFileToS3(logStreamName, logsMessages)
       const result = await updateCommitStatus(
         commitId, 
         GITHUB_COMMIT_STATE.FAILURE,
         "The pull request build failed!",
+        `${S3_BUCKET_URL}/${logStreamName}.html`,
         githubAccessToken
       )
       console.log(JSON.stringify(result))
