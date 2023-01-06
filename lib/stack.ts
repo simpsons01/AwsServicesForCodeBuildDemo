@@ -8,7 +8,7 @@ import * as cloudfrontOrigins from "aws-cdk-lib/aws-cloudfront-origins";
 
 const githubSourceConfig = {
   owner: "simpsons01",
-  repo: "CodebuildWithActionProject",
+  repo: "CodebuildDemo",
 }
 
 class PullRequestBuildProjectConstruct extends Construct  {
