@@ -11,6 +11,9 @@ const githubSourceConfig = {
   repo: "CodebuildDemo",
 }
 
+interface IPullRequestBuildProjectConstructProps {
+  cacheBucket: s3.Bucket
+}
 class PullRequestBuildProjectConstruct extends Construct  {
   component: {
     project: cdk.aws_codebuild.Project | null
@@ -18,7 +21,7 @@ class PullRequestBuildProjectConstruct extends Construct  {
     project: null,
   }
 
-  constructor(scope: Construct, id: string) {
+  constructor(scope: Construct, id: string, props: IPullRequestBuildProjectConstructProps) {
     super(scope, id)
 
     this.component.project = new codebuild.Project(scope, "PullRequestBuildProject", {
@@ -38,12 +41,18 @@ class PullRequestBuildProjectConstruct extends Construct  {
       environment: {
         buildImage: codebuild.LinuxBuildImage.AMAZON_LINUX_2_4,
       },
-      cache: codebuild.Cache.local(codebuild.LocalCacheMode.SOURCE)
+      cache: codebuild.Cache.bucket(props.cacheBucket),
     });
   
   }
 }
 
+interface IDeployBuildProjectConstructProps {
+  cacheBucket: s3.Bucket,
+  environmentVariables: {
+    [key: string]: cdk.aws_codebuild.BuildEnvironmentVariable
+  } 
+}
 class DeployBuildProjectConstruct extends Construct {
   component: {
     project: cdk.aws_codebuild.Project | null
@@ -54,9 +63,7 @@ class DeployBuildProjectConstruct extends Construct {
   constructor(
     scope: Construct, 
     id: string, 
-    environmentVariables: {
-      [key: string]: cdk.aws_codebuild.BuildEnvironmentVariable
-    } 
+    props: IDeployBuildProjectConstructProps
   ) {
     super(scope, id)
 
@@ -75,9 +82,11 @@ class DeployBuildProjectConstruct extends Construct {
       }),
       environment: {
         buildImage: codebuild.LinuxBuildImage.AMAZON_LINUX_2_4,
-        environmentVariables,
+        environmentVariables: {
+          ...props.environmentVariables
+        },
       },
-      cache: codebuild.Cache.local(codebuild.LocalCacheMode.SOURCE),
+      cache: codebuild.Cache.bucket(props.cacheBucket),
     });
 
     this.component.project.enableBatchBuilds()
@@ -87,7 +96,8 @@ class DeployBuildProjectConstruct extends Construct {
 export class DemoCodeBuildWithGithubActionDeploymentStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
-
+    
+    const cacheBucket = new s3.Bucket(this, "CacheBucket") 
     const deployBucket = new s3.Bucket(this, "DeployBucket")
 
     const cloudfrontDistribution = new cloudfront.Distribution(this, "CloudfrontDistribution", {
@@ -104,6 +114,16 @@ export class DemoCodeBuildWithGithubActionDeploymentStack extends cdk.Stack {
       resources: ['*']
     })
 
+    const githubTokenSecretStatement = new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        "secretsmanager:GetSecretValue"
+      ],
+      resources: [
+        'arn:aws:secretsmanager:ap-northeast-1:171191418924:secret:GITHUB_PERSONAL_ACCESS_TOKEN-L5J3rs'
+      ]
+    })
+
     const deployS3BucketWritePolicyStatement = new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
@@ -114,19 +134,28 @@ export class DemoCodeBuildWithGithubActionDeploymentStack extends cdk.Stack {
       ]
     })
 
-    const pullRequestBuildProject = new PullRequestBuildProjectConstruct(this, "PullRequestBuildProjectConstruct");
+    const pullRequestBuildProject = new PullRequestBuildProjectConstruct(this, "PullRequestBuildProjectConstruct", {
+      cacheBucket,
+    });
+
+    (pullRequestBuildProject.component.project as cdk.aws_codebuild.Project).addToRolePolicy(githubTokenSecretStatement);
 
     const deployBuildProject = new DeployBuildProjectConstruct(this, "DeployBuildProjectConstruct", {
-      DEPLOY_S3: {
-        value: deployBucket.bucketName
-      },
-      CDN_URL: {
-        value: cloudfrontDistribution.domainName
+      cacheBucket,
+      environmentVariables: {
+        DEPLOY_S3: {
+          value: deployBucket.bucketName
+        },
+        CDN_URL: {
+          value: cloudfrontDistribution.domainName
+        }
       }
     });
 
     (deployBuildProject.component.project as cdk.aws_codebuild.Project).addToRolePolicy(deployS3BucketWritePolicyStatement);
 
     (deployBuildProject.component.project as cdk.aws_codebuild.Project).addToRolePolicy(cloudfrontPolicyStatement);
+
+    (deployBuildProject.component.project as cdk.aws_codebuild.Project).addToRolePolicy(githubTokenSecretStatement);
   }
 }
