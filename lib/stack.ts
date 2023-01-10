@@ -86,7 +86,7 @@ class DeployBuildProjectConstruct extends Construct {
           ...props.environmentVariables
         },
       },
-      cache: codebuild.Cache.bucket(props.cacheBucket),
+      cache: codebuild.Cache.local(codebuild.LocalCacheMode.CUSTOM),
     });
 
     this.component.project.enableBatchBuilds()
