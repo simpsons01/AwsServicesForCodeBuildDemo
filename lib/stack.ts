@@ -43,6 +43,8 @@ class PullRequestBuildProjectConstruct extends Construct  {
       },
       cache: codebuild.Cache.bucket(props.cacheBucket, { prefix: "pull_request" }),
     });
+
+    this.component.project.enableBatchBuilds()
   
   }
 }
