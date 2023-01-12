@@ -30,6 +30,7 @@ class PullRequestBuildProjectConstruct extends Construct  {
       source: codebuild.Source.gitHub({
         ...githubSourceConfig,
         reportBuildStatus: true,
+        webhookTriggersBatchBuild: true,
         webhookFilters: [
           codebuild.FilterGroup.inEventOf(
             codebuild.EventAction.PULL_REQUEST_CREATED,
