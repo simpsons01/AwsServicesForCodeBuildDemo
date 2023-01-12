@@ -41,7 +41,7 @@ class PullRequestBuildProjectConstruct extends Construct  {
       environment: {
         buildImage: codebuild.LinuxBuildImage.AMAZON_LINUX_2_4,
       },
-      cache: codebuild.Cache.bucket(props.cacheBucket),
+      cache: codebuild.Cache.bucket(props.cacheBucket, { prefix: "pull_request" }),
     });
   
   }
@@ -86,7 +86,7 @@ class DeployBuildProjectConstruct extends Construct {
           ...props.environmentVariables
         },
       },
-      cache: codebuild.Cache.bucket(props.cacheBucket),
+      cache: codebuild.Cache.bucket(props.cacheBucket, { prefix: "deploy" }),
     });
 
     this.component.project.enableBatchBuilds()
