@@ -117,6 +117,17 @@ export class DemoCodeBuildWithGithubActionDeploymentStack extends cdk.Stack {
       resources: ['*']
     })
 
+    const ssmMessagesPolicyStatement = new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        "ssmmessages:CreateControlChannel",
+        "ssmmessages:CreateDataChannel",
+        "ssmmessages:OpenControlChannel",
+        "ssmmessages:OpenDataChannel"
+      ],
+      resources: ['*']
+    })
+
     const githubTokenSecretStatement = new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
@@ -160,5 +171,7 @@ export class DemoCodeBuildWithGithubActionDeploymentStack extends cdk.Stack {
     (deployBuildProject.component.project as cdk.aws_codebuild.Project).addToRolePolicy(cloudfrontPolicyStatement);
 
     (deployBuildProject.component.project as cdk.aws_codebuild.Project).addToRolePolicy(githubTokenSecretStatement);
+
+    (deployBuildProject.component.project as cdk.aws_codebuild.Project).addToRolePolicy(ssmMessagesPolicyStatement);
   }
 }
