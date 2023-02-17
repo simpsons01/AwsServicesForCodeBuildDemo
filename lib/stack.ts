@@ -25,7 +25,7 @@ class PullRequestBuildProjectConstruct extends Construct  {
     super(scope, id)
 
     this.component.project = new codebuild.Project(scope, "PullRequestBuildProject", {
-      buildSpec: codebuild.BuildSpec.fromSourceFilename("buildspec.pullrequest.yml"),
+      buildSpec: codebuild.BuildSpec.fromSourceFilename("codebuild/buildspec.pullrequest.yml"),
       projectName: "PullRequestBuild",
       source: codebuild.Source.gitHub({
         ...githubSourceConfig,
@@ -71,7 +71,7 @@ class DeployBuildProjectConstruct extends Construct {
     super(scope, id)
 
     this.component.project = new codebuild.Project(scope, "DeployBuildProject", {
-      buildSpec: codebuild.BuildSpec.fromSourceFilename("buildspec.deploy.yml"),
+      buildSpec: codebuild.BuildSpec.fromSourceFilename("codebuild/buildspec.deploy.yml"),
       projectName: "DeployBuild",
       source: codebuild.Source.gitHub({
         ...githubSourceConfig,
