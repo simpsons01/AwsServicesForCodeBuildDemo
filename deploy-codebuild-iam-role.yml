@@ -1,0 +1,36 @@
+Resources: 
+  DeployCodebuildRole:
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: PolicyForAssumeCdnInvalidationRole
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: 
+                  - sts:AssumeRole
+                Resource: 
+                  - !ImportValue cdnInvalidationIamRole-CdnValidationRoleArn
+        
+Outputs: 
+  DeployCodebuildRoleArn:
+    Description: deploy codebuild role arn  
+    Value: !GetAtt DeployCodebuildRole.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-CodebuildRoleArn
+  DeployCodebuildRoleId:
+    Description: deploy codebuild role id
+    Value: !GetAtt DeployCodebuildRole.RoleId
+    Export:
+      Name: !Sub ${AWS::StackName}-CodebuildRoleId
+    

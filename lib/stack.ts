@@ -69,7 +69,14 @@ class DeployBuildProjectConstruct extends Construct {
   ) {
     super(scope, id)
 
+    const role = iam.Role.fromRoleArn(
+      this, 
+      "DeployCodebuildRole", 
+      cdk.Fn.importValue('deployCodebuildIamRole-CodebuildRoleArn')
+    )
+
     this.component.project = new codebuild.Project(scope, "DeployBuildProject", {
+      role,
       buildSpec: codebuild.BuildSpec.fromSourceFilename("codebuild/buildspec.deploy.yml"),
       projectName: "DeployBuild",
       source: codebuild.Source.gitHub({
@@ -115,17 +122,6 @@ export class DemoCodeBuildWithGithubActionDeploymentStack extends cdk.Stack {
       resources: ['*']
     })
 
-    const ssmMessagesPolicyStatement = new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        "ssmmessages:CreateControlChannel",
-        "ssmmessages:CreateDataChannel",
-        "ssmmessages:OpenControlChannel",
-        "ssmmessages:OpenDataChannel"
-      ],
-      resources: ['*']
-    })
-
     const githubTokenSecretStatement = new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
@@ -162,12 +158,8 @@ export class DemoCodeBuildWithGithubActionDeploymentStack extends cdk.Stack {
       }
     });
 
-    (deployBuildProject.component.project as cdk.aws_codebuild.Project).addToRolePolicy(deployS3BucketWritePolicyStatement);
-
-    (deployBuildProject.component.project as cdk.aws_codebuild.Project).addToRolePolicy(cloudfrontPolicyStatement);
-
     (deployBuildProject.component.project as cdk.aws_codebuild.Project).addToRolePolicy(githubTokenSecretStatement);
 
-    (deployBuildProject.component.project as cdk.aws_codebuild.Project).addToRolePolicy(ssmMessagesPolicyStatement);
+    (deployBuildProject.component.project as cdk.aws_codebuild.Project).addToRolePolicy(deployS3BucketWritePolicyStatement);
   }
 }

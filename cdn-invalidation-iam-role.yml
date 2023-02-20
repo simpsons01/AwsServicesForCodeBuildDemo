@@ -1,0 +1,38 @@
+Resources: 
+  CdnValidationRole:
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+              AWS:
+                - !ImportValue deployCodebuildIamRole-CodebuildRoleArn
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: PolicyForCdn
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: 
+                  - cloudfront:*
+                Resource: 
+                  - !Sub arn:aws:cloudfront::171191418924:distribution/E3HZOT1NNRJHM
+        
+Outputs: 
+  CdnValidationRoleArn:
+    Description: cdnValidation role arn
+    Value: !GetAtt CdnValidationRole.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-CdnValidationRoleArn
+  CdnValidationRoleRoleId:
+    Description: cdnValidation role id
+    Value: !GetAtt CdnValidationRole.RoleId
+    Export:
+      Name: !Sub ${AWS::StackName}-CdnValidationRoleRoleId
+    
