@@ -1,0 +1,93 @@
+Resources: 
+  MyCodebuildRole:
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: PolicyForCodebuild
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: 
+                  - codebuild:BatchPutCodeCoverages
+                  - codebuild:BatchPutTestCases
+                  - codebuild:CreateReport
+                  - codebuild:CreateReportGroup
+                  - codebuild:UpdateReport
+                Resource: 
+                  - !Sub arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:project/*
+        - PolicyName: PolicyForLogGroup
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: 
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: 
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/*
+        - PolicyName: PolicyForS3
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: 
+                  - s3:*
+                Resource: 
+                  - !Sub arn:aws:s3:::*
+        - PolicyName: PolicyForAssumeCdnValidationRole
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: 
+                  - sts:AssumeRole
+                Resource: 
+                  - !GetAtt CdnValidationRole.Arn               
+  CdnValidationRole:
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: PolicyForCdn
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: 
+                  - cloudfront:*
+                Resource: 
+                  - !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/*
+        
+Outputs: 
+  CodebuildRoleArn:
+    Description: my codebuild role arn  
+    Value: !GetAtt MyCodebuildRole.Arn
+  CodebuildRoleId:
+    Description: my codebuild role id
+    Value: !GetAtt MyCodebuildRole.RoleId
+  CdnValidationRoleArn:
+    Description: cdnValidation role arn
+    Value: !GetAtt CdnValidationRole.Arn
+  CdnValidationRoleRoleId:
+    Description: cdnValidation role id
+    Value: !GetAtt CdnValidationRole.RoleId
+    
