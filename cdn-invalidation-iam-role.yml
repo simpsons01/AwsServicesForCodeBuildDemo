@@ -21,8 +21,7 @@ Resources:
               - Effect: Allow
                 Action: 
                   - cloudfront:*
-                Resource: 
-                  - !Sub arn:aws:cloudfront::171191418924:distribution/E3HZOT1NNRJHM
+                Resource: "*"
         
 Outputs: 
   CdnValidationRoleArn:
