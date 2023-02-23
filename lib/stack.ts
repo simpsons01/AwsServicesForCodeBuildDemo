@@ -12,7 +12,7 @@ const githubSourceConfig = {
 }
 
 interface IPullRequestBuildProjectConstructProps {
-  
+  cacheBucket: s3.Bucket
 }
 class PullRequestBuildProjectConstruct extends Construct  {
   component: {
@@ -42,7 +42,7 @@ class PullRequestBuildProjectConstruct extends Construct  {
       environment: {
         buildImage: codebuild.LinuxBuildImage.AMAZON_LINUX_2_4,
       },
-      cache: codebuild.Cache.local(codebuild.LocalCacheMode.CUSTOM),
+      cache: codebuild.Cache.bucket(props.cacheBucket),
     });
 
     this.component.project.enableBatchBuilds()
@@ -51,6 +51,7 @@ class PullRequestBuildProjectConstruct extends Construct  {
 }
 
 interface IDeployBuildProjectConstructProps {
+  cacheBucket: s3.Bucket,
   environmentVariables: {
     [key: string]: cdk.aws_codebuild.BuildEnvironmentVariable
   } 
@@ -95,7 +96,7 @@ class DeployBuildProjectConstruct extends Construct {
           ...props.environmentVariables
         },
       },
-      cache: codebuild.Cache.local(codebuild.LocalCacheMode.CUSTOM),
+      cache: codebuild.Cache.bucket(props.cacheBucket),
     });
 
     this.component.project.enableBatchBuilds()
@@ -106,6 +107,7 @@ export class DemoCodeBuildWithGithubActionDeploymentStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
     
+    const cacheBucket = new s3.Bucket(this, "CacheBucket") 
     const deployBucket = new s3.Bucket(this, "DeployBucket")
 
     const cloudfrontDistribution = new cloudfront.Distribution(this, "CloudfrontDistribution", {
@@ -143,11 +145,13 @@ export class DemoCodeBuildWithGithubActionDeploymentStack extends cdk.Stack {
     })
 
     const pullRequestBuildProject = new PullRequestBuildProjectConstruct(this, "PullRequestBuildProjectConstruct", {
+      cacheBucket,
     });
 
     (pullRequestBuildProject.component.project as cdk.aws_codebuild.Project).addToRolePolicy(githubTokenSecretStatement);
 
     const deployBuildProject = new DeployBuildProjectConstruct(this, "DeployBuildProjectConstruct", {
+      cacheBucket,
       environmentVariables: {
         DEPLOY_S3: {
           value: deployBucket.bucketName
